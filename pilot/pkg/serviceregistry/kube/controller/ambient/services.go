@@ -21,6 +21,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 
+	apiannotation "istio.io/api/annotation"
 	"istio.io/api/networking/v1alpha3"
 	networkingclient "istio.io/client-go/pkg/apis/networking/v1"
 	"istio.io/istio/pilot/pkg/model"
@@ -65,6 +66,7 @@ func (a *index) serviceServiceBuilder(
 		waypoint, wperr := fetchWaypointForService(ctx, waypoints, namespaces, s.ObjectMeta)
 		if waypoint != nil {
 			waypointStatus.ResourceName = waypoint.ResourceName()
+			waypointStatus.IngressUseWaypoint = s.Labels["istio.io/ingress-use-waypoint"] == "true"
 		}
 		waypointStatus.Error = wperr
 
@@ -109,6 +111,7 @@ func (a *index) serviceEntriesInfo(s *networkingclient.ServiceEntry, w *Waypoint
 	waypoint := model.WaypointBindingStatus{}
 	if w != nil {
 		waypoint.ResourceName = w.ResourceName()
+		waypoint.IngressUseWaypoint = s.Labels["istio.io/ingress-use-waypoint"] == "true"
 	}
 	if wperr != nil {
 		waypoint.Error = wperr
@@ -148,7 +151,7 @@ func (a *index) constructServiceEntries(svc *networkingclient.ServiceEntry, w *W
 	}
 
 	var lb *workloadapi.LoadBalancing
-	preferClose := strings.EqualFold(svc.Annotations["networking.istio.io/traffic-distribution"], v1.ServiceTrafficDistributionPreferClose)
+	preferClose := strings.EqualFold(svc.Annotations[apiannotation.NetworkingTrafficDistribution.Name], v1.ServiceTrafficDistributionPreferClose)
 	if preferClose {
 		lb = preferCloseLoadBalancer
 	}
@@ -196,7 +199,7 @@ func (a *index) constructService(svc *v1.Service, w *Waypoint) *workloadapi.Serv
 	var lb *workloadapi.LoadBalancing
 
 	// The TrafficDistribution field is quite new, so we allow a legacy annotation option as well
-	preferClose := strings.EqualFold(svc.Annotations["networking.istio.io/traffic-distribution"], v1.ServiceTrafficDistributionPreferClose)
+	preferClose := strings.EqualFold(svc.Annotations[apiannotation.NetworkingTrafficDistribution.Name], v1.ServiceTrafficDistributionPreferClose)
 	if svc.Spec.TrafficDistribution != nil {
 		preferClose = *svc.Spec.TrafficDistribution == v1.ServiceTrafficDistributionPreferClose
 	}

@@ -80,6 +80,7 @@ var (
 	recursive         bool
 	ignoreUnknown     bool
 	revisionSpecified string
+	remoteContexts    []string
 
 	fileExtensions = []string{".json", ".yaml", ".yml"}
 )
@@ -272,7 +273,11 @@ func Analyze(ctx cli.Context) *cobra.Command {
 						for _, r := range readers {
 							files = append(files, r.Name)
 						}
-						fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", strings.Join(files, "\n"))
+						if len(files) > 1 {
+							fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing:\n  - %s\n", strings.Join(files, "\n  - "))
+						} else {
+							fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", strings.Join(files, "\n"))
+						}
 					} else {
 						fmt.Fprintf(cmd.ErrOrStderr(), "\u2714 No validation issues found when analyzing %s.\n", analyzeTargetAsString())
 					}
@@ -333,6 +338,9 @@ func Analyze(ctx cli.Context) *cobra.Command {
 		"Don't complain about un-parseable input documents, for cases where analyze should run only on k8s compliant inputs.")
 	analysisCmd.PersistentFlags().StringVarP(&revisionSpecified, "revision", "", "default",
 		"analyze a specific revision deployed.")
+	analysisCmd.PersistentFlags().StringArrayVar(&remoteContexts, "remote-contexts", []string{},
+		`Kubernetes configuration contexts for remote clusters to be used in multi-cluster analysis. Not to be confused with '--context'. `+
+			"If unspecified, contexts are read from the remote secrets in the cluster.")
 	return analysisCmd
 }
 
@@ -501,6 +509,14 @@ func getClients(ctx cli.Context) ([]*Client, error) {
 			remote: false,
 		},
 	}
+	if len(remoteContexts) > 0 {
+		remoteClients, err := getClientsFromContexts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, remoteClients...)
+		return clients, nil
+	}
 	secrets, err := client.Kube().CoreV1().Secrets(ctx.IstioNamespace()).List(context.Background(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", multicluster.MultiClusterSecretLabel, "true"),
 	})
@@ -532,6 +548,21 @@ func getClients(ctx cli.Context) ([]*Client, error) {
 				remote: true,
 			})
 		}
+	}
+	return clients, nil
+}
+
+func getClientsFromContexts(ctx cli.Context) ([]*Client, error) {
+	var clients []*Client
+	remoteClients, err := ctx.CLIClientsForContexts(remoteContexts)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range remoteClients {
+		clients = append(clients, &Client{
+			client: c,
+			remote: true,
+		})
 	}
 	return clients, nil
 }
